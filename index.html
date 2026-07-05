@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>War-opoly | Global Conquest</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <h1>War-opoly: Global Conquest</h1>
+      <p>Build your faction, recruit your army, and fight through a cinematic online battlefield where every territory matters.</p>
+    </section>
+
+    <div id="setup" class="panel">
+      <div class="topbar">
+        <div class="input-row">
+          <input type="text" id="username" placeholder="Commander name" />
+          <input type="text" id="room-code" placeholder="Room code" />
+          <input type="text" id="army-name" placeholder="Army name" />
+        </div>
+        <div class="input-row">
+          <button onclick="createRoom()">Create Lobby</button>
+          <button class="secondary" onclick="joinGame()">Join Lobby</button>
+        </div>
+      </div>
+      <div class="flag-upload-panel">
+        <label class="file-label">
+          Upload flag for <span id="flag-upload-text">Israel</span>
+          <input type="file" id="flag-upload" accept="image/*" onchange="handleFlagUpload(event)" />
+        </label>
+        <div class="selected-preview">
+          <div id="selected-flag-preview" class="selected-flag-preview"></div>
+          <div>
+            <div class="small">Selected nation</div>
+            <div id="selected-country-label" class="country-preview-name">Israel</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="eyebrow">Choose your nation</div>
+      <div id="country-grid" class="country-grid"></div>
+    </div>
+
+    <div id="game-ui" style="display:none;">
+      <div class="lobby-grid">
+        <div class="panel lobby-card">
+          <div class="eyebrow">War Room</div>
+          <h3 id="lobby-title">Loading room...</h3>
+          <div id="lobby-players"></div>
+            <div id="leaderboard" class="leaderboard" style="margin-top:12px"></div>
+        </div>
+        <div class="panel lobby-card">
+          <div class="eyebrow">Command Center</div>
+          <button id="start-btn" onclick="startGame()" disabled>Start Match</button>
+          <div class="bet-panel">
+            <label class="bet-label" for="bet-amount">Bet credits</label>
+            <input type="number" id="bet-amount" min="50" step="50" value="100" />
+            <button id="bet-btn" class="secondary" onclick="placeBet()" disabled>Take Risk</button>
+          </div>
+          <p class="small" style="margin-top: 10px;">Host the room and bring in a rival commander to begin the war.</p>
+        </div>
+      </div>
+
+      <div id="game-board" style="display:none;">
+        <div class="hud-grid">
+          <div class="panel">
+            <div class="eyebrow">Mission Status</div>
+            <h3 id="turn-indicator">Preparing the war room...</h3>
+            <div id="player-stats"></div>
+          </div>
+          <div class="panel">
+            <div class="eyebrow">Battle Orders</div>
+            <button id="roll-btn" onclick="rollDice()" disabled>Launch Orders</button>
+            <p class="small" style="margin-top: 10px;">First commander to seize 5 territories or reach 4000 credits wins the war.</p>
+          </div>
+        </div>
+
+        <div id="board" class="board"></div>
+      </div>
+
+      <div id="battle-feed" class="panel" style="display:none;">
+        <div class="eyebrow">Battle Feed</div>
+        <div id="log" class="log"></div>
+      </div>
+      <div id="chat-panel" class="panel chat-panel" style="display:none;">
+        <div class="eyebrow">War Chat</div>
+        <div id="chat-log" class="chat-log"></div>
+        <div class="chat-input-row">
+          <input type="text" id="chat-input" placeholder="Type a message..." />
+          <button class="secondary" onclick="sendChat()">Send</button>
+        </div>
+      </div>
+
+      <div id="powerups-panel" class="panel" style="display:none;">
+        <div class="eyebrow">Power-Ups</div>
+        <div id="powerups-list" class="powerups-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const socket = io();
+    let myId = null;
+    let currentRoomId = null;
+    let selectedCountry = 'Israel';
+    let currentState = null;
+
+    const countries = [
+      { name: 'Israel', flag: '/images/israel-flag.svg', armyName: 'Yahoo Army' },
+      { name: 'United States', flag: '/images/united-states.svg', armyName: 'Stars and Stripes' },
+      { name: 'United Kingdom', flag: '/images/united-kingdom.svg', armyName: 'Royal Command' },
+      { name: 'Russia', flag: '/images/russia.svg', armyName: 'Suka Blyat' },
+      { name: 'Germany', flag: '/images/germany.svg', armyName: 'Panzer Corps' },
+      { name: 'Japan', flag: '/images/japan.svg', armyName: 'Samurai Force' },
+      { name: 'China', flag: '/images/china.svg', armyName: 'Dragon Guard' },
+      { name: 'France', flag: '/images/france.svg', armyName: 'Blue Legion' },
+      { name: 'India', flag: '/images/india.svg', armyName: 'Monsoon Battalion' },
+      { name: 'Brazil', flag: '/images/brazil.svg', armyName: 'Amazon Division' },
+      { name: 'Canada', flag: '/images/canada.svg', armyName: 'Maple Strike' },
+      { name: 'South Korea', flag: '/images/south-korea.svg', armyName: 'Tiger Brigade' },
+      { name: 'Australia', flag: '/images/australia.svg', armyName: 'Southern Fleet' },
+      { name: 'Egypt', flag: '/images/egypt.svg', armyName: 'Pharaoh Guard' },
+      { name: 'Spain', flag: '/images/spain.svg', armyName: 'Iberian Vanguard' },
+      { name: 'Mexico', flag: '/images/mexico.svg', armyName: 'Aztec Brigade' },
+      { name: 'Italy', flag: '/images/italy.svg', armyName: 'Legion of Rome' },
+      { name: 'Sweden', flag: '/images/sweden.svg', armyName: 'Nordic Shield' },
+      { name: 'South Africa', flag: '/images/south-africa.svg', armyName: 'Savanna Guard' }
+    ];
+
+    function handleFlagUpload(event) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const selected = countries.find((country) => country.name === selectedCountry);
+        if (selected) {
+          selected.flag = reader.result;
+        }
+        renderCountryPicker();
+        updateUploadLabel();
+        renderSelectedPreview();
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function getCountryFlag(countryName) {
+      const country = countries.find((item) => item.name === countryName);
+      return country ? country.flag : '';
+    }
+
+    function updateUploadLabel() {
+      const labelText = document.getElementById('flag-upload-text');
+      if (labelText) labelText.textContent = selectedCountry;
+    }
+
+    function renderSelectedPreview() {
+      const preview = document.getElementById('selected-flag-preview');
+      const label = document.getElementById('selected-country-label');
+      const flagUrl = getCountryFlag(selectedCountry);
+      if (preview) {
+        preview.style.backgroundImage = flagUrl ? `url('${flagUrl}')` : 'none';
+      }
+      if (label) label.textContent = selectedCountry;
+    }
+
+    function renderFlag(flag) {
+      if (!flag) return '';
+      return flag.startsWith('data:') || flag.startsWith('/')
+        ? `<img src="${flag}" alt="flag" class="flag-img" />`
+        : flag;
+    }
+
+    socket.on('connect', () => {
+      myId = socket.id;
+      renderCountryPicker();
+      updateUploadLabel();
+      renderSelectedPreview();
+    });
+
+    socket.on('updateGameState', (state) => {
+      currentState = state;
+      renderGame(state);
+    });
+    socket.on('gameAction', (data) => {
+      if (currentState) {
+        renderGame(currentState);
+      }
+      logAction(data.log);
+    });
+
+    socket.on('chatMessage', (data) => {
+      const log = document.getElementById('chat-log');
+      if (!log) return;
+      const entry = document.createElement('div');
+      entry.className = 'chat-entry';
+      entry.innerHTML = `<strong>${data.from}</strong>: ${data.text}`;
+      log.appendChild(entry);
+      log.scrollTop = log.scrollHeight;
+    });
+
+    socket.on('error', (message) => {
+      alert(message);
+    });
+
+    function renderCountryPicker() {
+      const container = document.getElementById('country-grid');
+      if (!container) return;
+      container.innerHTML = countries.map((country) => {
+        const bgUrl = getCountryFlag(country.name);
+        const backgroundStyle = bgUrl ? `background-image:url('${bgUrl}')` : 'background: rgba(255,255,255,0.04);';
+        return `
+          <button type="button" class="country-card ${country.name === selectedCountry ? 'selected' : ''}" onclick="selectCountry('${country.name}')" style="${backgroundStyle}">
+            <div class="country-name">${country.name}</div>
+            <div class="country-army">${country.armyName}</div>
+          </button>
+        `;
+      }).join('');
+      renderSelectedPreview();
+    }
+
+    function selectCountry(countryName) {
+      const previousSelection = countries.find((item) => item.name === selectedCountry);
+      selectedCountry = countryName;
+      const chosen = countries.find((item) => item.name === countryName);
+      const armyInput = document.getElementById('army-name');
+      if (chosen && armyInput) {
+        const currentValue = armyInput.value.trim();
+        const previousDefault = previousSelection ? previousSelection.armyName : '';
+        if (!currentValue || currentValue === previousDefault) {
+          armyInput.value = chosen.armyName;
+        }
+      }
+      updateUploadLabel();
+      renderCountryPicker();
+    }
+
+    function createRoom() {
+      const name = document.getElementById('username').value.trim();
+      const armyName = document.getElementById('army-name').value.trim();
+      if (!name) return alert('Enter your commander name.');
+      currentRoomId = (document.getElementById('room-code').value || '').trim().toUpperCase() || Math.random().toString(36).slice(2, 6).toUpperCase();
+      document.getElementById('room-code').value = currentRoomId;
+      joinGame();
+    }
+
+    function joinGame() {
+      const name = document.getElementById('username').value.trim();
+      const armyName = document.getElementById('army-name').value.trim();
+      if (!name) return alert('Enter a commander name before joining.');
+      currentRoomId = (document.getElementById('room-code').value || currentRoomId || '').trim().toUpperCase();
+      if (!currentRoomId) return alert('Pick or create a room code first.');
+
+      socket.emit('joinGame', {
+        name,
+        roomId: currentRoomId,
+        country: selectedCountry,
+        armyName: armyName || `${selectedCountry} Army`
+      });
+
+      document.getElementById('setup').style.display = 'none';
+      document.getElementById('game-ui').style.display = 'block';
+    }
+
+    function placeBet() {
+      const amount = Number(document.getElementById('bet-amount').value);
+      if (!amount || amount < 50) {
+        return alert('You must bet at least 50 credits.');
+      }
+      socket.emit('placeBet', currentRoomId, amount);
+    }
+
+      function sendChat() {
+        const text = document.getElementById('chat-input').value.trim();
+        if (!text) return;
+        socket.emit('chatMessage', currentRoomId, text);
+        document.getElementById('chat-input').value = '';
+      }
+
+      function buyPowerUp(type) {
+        socket.emit('buyPowerUp', currentRoomId, type);
+      }
+
+      function usePowerUp(type, targetId) {
+        socket.emit('usePowerUp', currentRoomId, type, targetId || null);
+      }
+
+    function startGame() {
+      socket.emit('startGame', currentRoomId);
+    }
+
+    function rollDice() {
+      socket.emit('rollDice', currentRoomId);
+    }
+
+    function renderGame(state) {
+      if (!state) return;
+      currentRoomId = state.roomId || currentRoomId;
+      const boardDiv = document.getElementById('board');
+      const playerStats = document.getElementById('player-stats');
+      const rollBtn = document.getElementById('roll-btn');
+      const turnIndicator = document.getElementById('turn-indicator');
+      const lobbyTitle = document.getElementById('lobby-title');
+      const lobbyPlayers = document.getElementById('lobby-players');
+      const startBtn = document.getElementById('start-btn');
+      const betBtn = document.getElementById('bet-btn');
+      const gameBoard = document.getElementById('game-board');
+      const battleFeed = document.getElementById('battle-feed');
+
+      if (state.status !== 'playing') {
+        if (betBtn) betBtn.disabled = true;
+        if (lobbyTitle) lobbyTitle.innerText = `Room ${state.roomId}`;
+        if (lobbyPlayers) {
+          const players = Object.values(state.players);
+          lobbyPlayers.innerHTML = players.length ? players.map((player) => `
+            <div class="player-tag">
+              <span class="player-badge">${renderFlag(getCountryFlag(player.country))} ${player.country} • ${player.armyName || player.name}</span>
+            </div>
+          `).join('') : '<div class="small">Waiting for a rival commander...</div>';
+        }
+        if (startBtn) {
+          const isHost = Object.values(state.players).some((player) => player.id === myId && player.isHost);
+          startBtn.disabled = !(isHost && Object.keys(state.players).length >= 2);
+        }
+        if (gameBoard) gameBoard.style.display = 'none';
+        if (battleFeed) battleFeed.style.display = 'none';
+        const chatPanel = document.getElementById('chat-panel');
+        const powerupsPanel = document.getElementById('powerups-panel');
+        if (chatPanel) chatPanel.style.display = 'none';
+        if (powerupsPanel) powerupsPanel.style.display = 'none';
+        if (turnIndicator) turnIndicator.innerText = 'Preparing the war room...';
+        return;
+      }
+
+      if (gameBoard) gameBoard.style.display = 'block';
+      if (battleFeed) battleFeed.style.display = 'block';
+      const chatPanel = document.getElementById('chat-panel');
+      const powerupsPanel = document.getElementById('powerups-panel');
+      if (chatPanel) chatPanel.style.display = 'block';
+      if (powerupsPanel) powerupsPanel.style.display = 'block';
+      boardDiv.innerHTML = '';
+      playerStats.innerHTML = '';
+
+      const players = Object.values(state.players);
+      state.board.forEach((space) => {
+        const occupants = players.filter((player) => player.position === space.id);
+        const owner = space.owner ? state.players[space.owner] : null;
+        const isTerritory = space.type === 'territory';
+        const tileClasses = ['tile'];
+        if (occupants.length) tileClasses.push('occupied');
+
+        boardDiv.innerHTML += `
+          <div class="${tileClasses.join(' ')}">
+            <div class="tile-icon">${space.icon}</div>
+            <div class="tile-name">${space.name}</div>
+            <div class="tile-meta">${isTerritory ? `Cost ${space.cost} • Defense ${space.defense}` : space.effect}</div>
+            <div class="tile-marker">${owner ? `Owned by ${owner.armyName || owner.name}` : 'Unclaimed'}</div>
+            ${occupants.length ? `<div class="tile-marker">${occupants.map((player) => `${player.country} • ${player.armyName || player.name}`).join(' • ')}</div>` : ''}
+          </div>
+        `;
+      });
+
+      playerStats.innerHTML = players.map((player) => {
+        const isMine = player.id === myId;
+        return `
+          <div class="player-card ${isMine ? 'mine' : ''}">
+            <strong>${player.armyName || player.name}</strong>
+            <div class="small">${player.country}</div>
+            <div>💰 Credits: ${player.money}</div>
+            <div>🪖 Army Power: ${player.armyPower}</div>
+            <div>🌍 Territories: ${player.territories.length}</div>
+            <div>🔧 Power-ups: ${player.powerUps && player.powerUps.length ? player.powerUps.join(', ') : '—'}</div>
+          </div>
+        `;
+      }).join('');
+
+      if (players.length < 2) {
+        turnIndicator.innerText = 'Waiting for a rival commander...';
+        rollBtn.disabled = true;
+        return;
+      }
+
+      const currentTurnId = state.turnOrder[state.currentTurnIndex];
+      if (state.winner) {
+        const winner = state.players[state.winner];
+        turnIndicator.innerText = `${winner.armyName || winner.name} has conquered the globe.`;
+        rollBtn.disabled = true;
+      } else if (currentTurnId === myId) {
+        turnIndicator.innerText = 'Your turn. Launch the next move.';
+        rollBtn.disabled = false;
+        if (betBtn) betBtn.disabled = false;
+      } else {
+        turnIndicator.innerText = 'Enemy turn. Hold position and watch the map.';
+        rollBtn.disabled = true;
+        if (betBtn) betBtn.disabled = true;
+      }
+
+      // render leaderboard
+      const lb = document.getElementById('leaderboard');
+      if (lb) {
+        const list = (state.leaderboard || []).slice(0,5).map((p, idx) => `<div class="leader">${idx+1}. ${p.name} — ${p.score}</div>`).join('');
+        lb.innerHTML = `<div class="small">Top commanders</div>${list}`;
+      }
+
+      // render power-ups shop
+      const shop = document.getElementById('powerups-list');
+      if (shop) {
+        const catalog = [
+          { key: 'airstrike', label: 'Airstrike', cost: 250 },
+          { key: 'shield', label: 'Shield', cost: 180 },
+          { key: 'doubleMove', label: 'Double Move', cost: 120 },
+          { key: 'spy', label: 'Spy', cost: 100 }
+        ];
+        const me = state.players[myId];
+        shop.innerHTML = catalog.map((c) => `
+          <div class="powerup-row">
+            <div><strong>${c.label}</strong> — ${c.cost}cr</div>
+            <div>
+              <button onclick="buyPowerUp('${c.key}')">Buy</button>
+              ${me && me.powerUps && me.powerUps.filter(p=>p===c.key).length ? `<button onclick="usePowerUp('${c.key}')">Use</button>` : ''}
+            </div>
+          </div>
+        `).join('');
+      }
+    }
+
+    function logAction(message) {
+      const log = document.getElementById('log');
+      if (!log) return;
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+      entry.textContent = message;
+      log.appendChild(entry);
+      log.scrollTop = log.scrollHeight;
+    }
+  </script>
+</body>
+</html>
