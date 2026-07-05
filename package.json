@@ -1,0 +1,12 @@
+{
+  "name": "war-opoly",
+  "version": "1.0.0",
+  "description": "A cinematic multiplayer strategy game about global conquest",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "socket.io": "^4.8.3"
+  }
+}
